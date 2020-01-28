@@ -17,31 +17,22 @@ limitations under the License.
 package reconfigure
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"strings"
-	"text/tabwriter"
 	"time"
 
-	"github.com/gravitational/gravity/lib/checks"
 	"github.com/gravitational/gravity/lib/defaults"
 	"github.com/gravitational/gravity/lib/install"
 	"github.com/gravitational/gravity/lib/install/dispatcher"
 	"github.com/gravitational/gravity/lib/ops"
 	"github.com/gravitational/gravity/lib/schema"
-	"github.com/gravitational/gravity/lib/state"
 	"github.com/gravitational/gravity/lib/storage"
-	"github.com/gravitational/gravity/lib/system/environ"
 	"github.com/gravitational/gravity/lib/systeminfo"
-	"github.com/gravitational/gravity/lib/utils"
 
-	"github.com/fatih/color"
 	"github.com/gravitational/trace"
 	"github.com/sirupsen/logrus"
 )
 
-//
+// NewEngine returns fsm engine for the reconfigure operation.
 func NewEngine(config Config) (*Engine, error) {
 	if err := config.checkAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
@@ -51,111 +42,85 @@ func NewEngine(config Config) (*Engine, error) {
 	}, nil
 }
 
-func (r *Config) checkAndSetDefaults() error {
-	if r.FieldLogger == nil {
-		r.FieldLogger = logrus.WithField(trace.Component, "engine:reconfigure")
-	}
-	if r.Operator == nil {
-		return trace.BadParameter("missing Operator")
-	}
-	return nil
+// Engine implements command line-driven installation workflow
+type Engine struct {
+	// Config specifies the engine's configuration
+	Config
 }
 
-//
+// Config is the reconfigure operation engine configuration.
 type Config struct {
 	// FieldLogger is the logger for the installer
 	logrus.FieldLogger
 	// Operator specifies the service operator
 	ops.Operator
+	// InstallOperation is the original install operation of this cluster.
 	InstallOperation *storage.SiteOperation
-	// //
-	// AdvertiseAddr string
-	// //
-	// Token string
+}
+
+func (c *Config) checkAndSetDefaults() error {
+	if c.FieldLogger == nil {
+		c.FieldLogger = logrus.WithField(trace.Component, "engine:reconfigure")
+	}
+	if c.Operator == nil {
+		return trace.BadParameter("missing Operator")
+	}
+	return nil
 }
 
 // Execute executes the installer steps.
 // Implements installer.Engine
-func (r *Engine) Execute(ctx context.Context, installer install.Interface, config install.Config) (dispatcher.Status, error) {
-	err := r.execute(ctx, installer, config)
+func (e *Engine) Execute(ctx context.Context, installer install.Interface, config install.Config) (dispatcher.Status, error) {
+	err := e.execute(ctx, installer, config)
 	if err != nil {
 		return dispatcher.StatusUnknown, trace.Wrap(err)
 	}
 	return dispatcher.StatusCompleted, nil
 }
 
-func (r *Engine) execute(ctx context.Context, installer install.Interface, config install.Config) (err error) {
-	if err := r.validate(ctx, config); err != nil {
+func (e *Engine) execute(ctx context.Context, installer install.Interface, config install.Config) (err error) {
+	if err := e.validate(ctx, config); err != nil {
 		return trace.Wrap(err)
 	}
-	e := executor{
-		Config:    r.Config,
-		Interface: installer,
-		ctx:       ctx,
-		config:    config,
-	}
-	// if err := e.bootstrap(); err != nil {
-	// 	return trace.Wrap(err)
-	// }
-	operation, err := e.upsertClusterAndOperation()
+	operation, err := e.upsertClusterAndOperation(ctx, installer, config)
 	if err != nil {
 		return trace.Wrap(err, "failed to create cluster/operation")
 	}
-	// if err := installer.NotifyOperationAvailable(*operation); err != nil {
-	// 	return trace.Wrap(err)
-	// }
-	// err = e.waitForAgents(*operation)
-	// if err != nil {
-	// 	return trace.Wrap(err)
-	// }
 	if err := installer.ExecuteOperation(operation.Key()); err != nil {
 		return trace.Wrap(err)
 	}
 	if err := installer.CompleteOperation(*operation); err != nil {
-		r.WithError(err).Warn("Failed to finalize install.")
+		e.WithError(err).Warn("Failed to finalize install.")
 	}
 	return nil
 }
 
-func (r *Engine) validate(ctx context.Context, config install.Config) (err error) {
+func (e *Engine) validate(ctx context.Context, config install.Config) (err error) {
 	return nil
 	//	return trace.Wrap(config.RunLocalChecks(ctx))
 }
 
-// // bootstrap prepares for the installation
-// func (r *executor) bootstrap() error {
-// 	err := install.InstallBinary(r.config.ServiceUser.UID, r.config.ServiceUser.GID, r.FieldLogger)
-// 	if err != nil {
-// 		return trace.Wrap(err, "failed to install binary")
-// 	}
-// 	err = configureStateDirectory(r.config.SystemDevice)
-// 	if err != nil {
-// 		return trace.Wrap(err, "failed to configure state directory")
-// 	}
-// 	return nil
-// }
-
-func (r *executor) upsertClusterAndOperation() (*ops.SiteOperation, error) {
-	clusters, err := r.Operator.GetSites(defaults.SystemAccountID)
+func (e *Engine) upsertClusterAndOperation(ctx context.Context, installer install.Interface, config install.Config) (*ops.SiteOperation, error) {
+	clusters, err := e.Operator.GetSites(defaults.SystemAccountID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	var cluster *ops.Site
 	if len(clusters) == 0 {
-		cluster, err = r.Operator.CreateSite(r.NewCluster())
+		cluster, err = e.Operator.CreateSite(installer.NewCluster())
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
 	} else {
 		cluster = &clusters[0]
 	}
-	operations, err := r.Operator.GetSiteOperations(cluster.Key())
+	operations, err := e.Operator.GetSiteOperations(cluster.Key())
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	var operation *ops.SiteOperation
 	if len(operations) == 0 {
-		operation, err = r.createOperation()
+		operation, err = e.createOperation(ctx, config)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -165,16 +130,16 @@ func (r *executor) upsertClusterAndOperation() (*ops.SiteOperation, error) {
 	return operation, nil
 }
 
-func (r *executor) createOperation() (*ops.SiteOperation, error) {
+func (e *Engine) createOperation(ctx context.Context, config install.Config) (*ops.SiteOperation, error) {
 	systemInfo, err := systeminfo.New()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	server := storage.Server{
-		AdvertiseIP: r.config.AdvertiseAddr,
+		AdvertiseIP: config.AdvertiseAddr,
 		Hostname:    systemInfo.GetHostname(),
 		// Nodename: ,
-		Role: r.config.Role,
+		Role: config.Role,
 		// InstanceType: ,
 		// InstanceID: ,
 		ClusterRole: string(schema.ServiceRoleMaster),
@@ -189,143 +154,20 @@ func (r *executor) createOperation() (*ops.SiteOperation, error) {
 	req := ops.CreateClusterReconfigureOperationRequest{
 		SiteKey: ops.SiteKey{
 			AccountID:  defaults.SystemAccountID,
-			SiteDomain: r.config.SiteDomain,
+			SiteDomain: config.SiteDomain,
 		},
-		AdvertiseAddr: r.config.AdvertiseAddr,
-		Token:         r.config.Token.Token,
+		AdvertiseAddr: config.AdvertiseAddr,
+		Token:         config.Token.Token,
 		Servers:       []storage.Server{server},
-		InstallExpand: r.InstallOperation.InstallExpand,
+		InstallExpand: e.InstallOperation.InstallExpand,
 	}
-	r.Infof("DEBUG %#v", req)
-	key, err := r.Operator.CreateClusterReconfigureOperation(r.ctx, req)
+	key, err := e.Operator.CreateClusterReconfigureOperation(ctx, req)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	operation, err := r.Operator.GetSiteOperation(*key)
+	operation, err := e.Operator.GetSiteOperation(*key)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	return operation, nil
-}
-
-func (r *executor) waitForAgents(operation ops.SiteOperation) error {
-	ctx, cancel := context.WithTimeout(r.ctx, defaults.AgentWaitTimeout)
-	defer cancel()
-	b := utils.NewUnlimitedExponentialBackOff()
-	b.MaxInterval = 5 * time.Second
-	var report *ops.AgentReport
-	err := utils.RetryWithInterval(ctx, b, func() error {
-		newReport, err := r.Operator.GetSiteInstallOperationAgentReport(operation.Key())
-		if err != nil {
-			return trace.Wrap(err, "failed to get agent report")
-		}
-		oldReport := report
-		report = newReport
-		if err := r.canContinue(oldReport, newReport); err != nil {
-			return trace.Wrap(err)
-		}
-		r.WithField("report", report).Info("Installation can proceed.")
-		return nil
-		// err = libinstall.UpdateOperationState(r.Operator, operation, *report)
-		// return trace.Wrap(err)
-	})
-	return trace.Wrap(err)
-}
-
-// canContinue returns true if all agents have joined and the installation can start
-func (r *executor) canContinue(old, new *ops.AgentReport) error {
-	// See if any new nodes have joined or left since previous agent report.
-	joined, left := new.Diff(old)
-	for _, server := range joined {
-		r.PrintStep(color.GreenString("Successfully added %q node on %v",
-			server.Role, utils.ExtractHost(server.AdvertiseAddr)))
-	}
-	for _, server := range left {
-		r.PrintStep(color.YellowString("Node %q on %v has left",
-			server.Role, utils.ExtractHost(server.AdvertiseAddr)))
-	}
-	// See if the current agent report satisfies the selected flavor.
-	needed, extra := new.MatchFlavor(r.config.Flavor)
-	if len(needed) == 0 && len(extra) == 0 {
-		r.PrintStep(color.GreenString("All agents have connected!"))
-		return nil
-	}
-	// If there were no changes compared to previous report, do not
-	// output anything.
-	if len(joined) == 0 && len(left) == 0 {
-		return trace.Errorf("waiting for agents to join")
-	}
-	// Dump the table with remaining nodes that need to join.
-	r.PrintStep("Please execute the following join commands on target nodes:\n%v",
-		formatProfiles(needed, r.config.AdvertiseAddr, r.config.Token.Token))
-	// If there are any extra agents with roles we don't expect for
-	// the selected flavor, they need to leave.
-	for _, server := range extra {
-		r.PrintStep(color.RedString("Node %q on %v is not a part of the flavor, shut it down",
-			server.Role, utils.ExtractHost(server.AdvertiseAddr)))
-	}
-	return trace.Errorf(formatNeededAndExtra(needed, extra))
-}
-
-// Engine implements command line-driven installation workflow
-type Engine struct {
-	// Config specifies the engine's configuration
-	Config
-}
-
-type executor struct {
-	Config
-	install.Interface
-	config install.Config
-	ctx    context.Context
-}
-
-// formatProfiles outputs a table with information about node profiles
-// that need to join in order for installation to proceed.
-func formatProfiles(profiles map[string]int, addr, token string) string {
-	var buf bytes.Buffer
-	w := new(tabwriter.Writer)
-	w.Init(&buf, 0, 8, 1, '\t', 0)
-	fmt.Fprintf(w, "Role\tNodes\tCommand\n")
-	fmt.Fprintf(w, "----\t-----\t-------\n")
-	for role, nodes := range profiles {
-		fmt.Fprintf(w, "%v\t%v\t%v\n", role, nodes,
-			fmt.Sprintf("./gravity join %v --token=%v --role=%v",
-				addr, token, role))
-	}
-	w.Flush()
-	return buf.String()
-}
-
-// configureStateDirectory configures local gravity state directory
-func configureStateDirectory(systemDevice string) error {
-	stateDir, err := state.GetStateDir()
-	if err != nil {
-		return trace.Wrap(err)
-	}
-	err = environ.ConfigureStateDirectory(stateDir, systemDevice)
-	return trace.Wrap(err)
-}
-
-func formatNeededAndExtra(needed map[string]int, extra []checks.ServerInfo) string {
-	var buf bytes.Buffer
-	fmt.Fprint(&buf, "still requires:[")
-	var nodes []string
-	for role, amount := range needed {
-		nodes = append(nodes, fmt.Sprintf("%v nodes of role %q", amount, role))
-	}
-	fmt.Fprint(&buf, strings.Join(nodes, ","))
-	fmt.Fprint(&buf, "]")
-	if len(extra) == 0 {
-		return buf.String()
-	}
-	fmt.Fprint(&buf, ", following nodes are unexpected:[")
-	nodes = nodes[:0]
-	for _, n := range extra {
-		nodes = append(nodes, fmt.Sprintf("%v(%v)",
-			n.Role, utils.ExtractHost(n.AdvertiseAddr)))
-	}
-	fmt.Fprint(&buf, strings.Join(nodes, ","))
-	fmt.Fprint(&buf, "]")
-	return buf.String()
 }

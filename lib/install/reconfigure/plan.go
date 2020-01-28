@@ -1,3 +1,19 @@
+/*
+Copyright 2020 Gravitational, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package reconfigure
 
 import (
@@ -11,6 +27,7 @@ import (
 	"github.com/gravitational/trace"
 )
 
+// NewPlanner returns reconfigure operation plan builder.
 func NewPlanner(getter install.PlanBuilderGetter, cluster storage.Site) *Planner {
 	return &Planner{
 		PlanBuilderGetter: getter,
@@ -18,6 +35,7 @@ func NewPlanner(getter install.PlanBuilderGetter, cluster storage.Site) *Planner
 	}
 }
 
+// GetOperationPlan creates operation plan for the reconfigure operation.
 func (p *Planner) GetOperationPlan(operator ops.Operator, cluster ops.Site, operation ops.SiteOperation) (*storage.OperationPlan, error) {
 	masters, _ := fsm.SplitServers(operation.Servers)
 	if len(masters) == 0 {
@@ -63,12 +81,15 @@ func (p *Planner) GetOperationPlan(operator ops.Operator, cluster ops.Site, oper
 	builder.AddMastersPhase(plan)
 	builder.AddWaitPhase(plan)
 	builder.AddHealthPhase(plan)
-	builder.AddFixPhase(plan)
+	builder.AddCleanupPhase(plan)
 
 	return plan, nil
 }
 
+// Planner creates operation plans for the reconfigure operation.
 type Planner struct {
+	// PlanBuilderGetter allows to retrieve install plan builder.
 	install.PlanBuilderGetter
+	// Cluster is the installed cluster.
 	Cluster storage.Site
 }
