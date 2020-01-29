@@ -127,11 +127,11 @@ func InitAndCheck(g *Application, cmd string) error {
 		g.ResourceRemoveCmd.FullCommand(),
 		g.OpsAgentCmd.FullCommand():
 		utils.InitLogging(*g.SystemLogFile)
-		// install and join command also duplicate their logs to the file in
+		// several command also duplicate their logs to the file in
 		// the current directory for convenience, unless the user set their
 		// own location
 		switch cmd {
-		case g.InstallCmd.FullCommand(), g.JoinCmd.FullCommand():
+		case g.InstallCmd.FullCommand(), g.JoinCmd.FullCommand(), g.ReconfigureCmd.FullCommand():
 			if *g.SystemLogFile == defaults.GravitySystemLog {
 				utils.InitLogging(defaults.GravitySystemLogFile)
 			}

@@ -30,17 +30,23 @@ import (
 
 // NewCleanup dispatches the specific cleanup phase to an appropriate executor.
 func NewCleanup(p fsm.ExecutorParams, operator ops.Operator, packages pack.PackageService, client *kubernetes.Clientset) (fsm.PhaseExecutor, error) {
-	switch phaseID := strings.Replace(p.Phase.ID, CleanupPhase, "", 1); phaseID {
-	case PackagesPhase:
-		return NewPackages(p, operator, packages)
-	case StatePhase:
-		return NewState(p, operator)
-	case NetworkPhase:
-		return NewNetwork(p, operator)
-	case TokensPhase:
-		return NewTokens(p, operator, client)
-	case NodePhase:
-		return NewNode(p, operator, client)
+	switch {
+	case strings.HasPrefix(p.Phase.ID, PreCleanupPhase):
+		switch phaseID := strings.Replace(p.Phase.ID, PreCleanupPhase, "", 1); phaseID {
+		case NetworkPhase:
+			return NewNetwork(p, operator)
+		}
+	case strings.HasPrefix(p.Phase.ID, PostCleanupPhase):
+		switch phaseID := strings.Replace(p.Phase.ID, PostCleanupPhase, "", 1); phaseID {
+		case PackagesPhase:
+			return NewPackages(p, operator, packages)
+		case StatePhase:
+			return NewState(p, operator)
+		case TokensPhase:
+			return NewTokens(p, operator, client)
+		case NodePhase:
+			return NewNode(p, operator, client)
+		}
 	}
 	return nil, trace.BadParameter("unknown phase %q", p.Phase.ID)
 }
@@ -54,10 +60,10 @@ func opKey(plan storage.OperationPlan) ops.SiteOperationKey {
 }
 
 const (
-	// CleanupPhase does post IP change cleanups.
-	//
-	// The phases defined below are its sub-phases.
-	CleanupPhase = "/cleanup"
+	// PreCleanupPhase does pre IP change cleanups.
+	PreCleanupPhase = "/precleanup"
+	// PostCleanupPhase does post IP change cleanups.
+	PostCleanupPhase = "/postcleanup"
 	// PackagesPhase removes old configuration and secret packages.
 	PackagesPhase = "/packages"
 	// StatePhase updates the cluster state.

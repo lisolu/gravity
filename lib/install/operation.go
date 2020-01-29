@@ -20,6 +20,7 @@ import (
 	"github.com/gravitational/gravity/lib/system/signals"
 
 	"github.com/fatih/color"
+	teleevents "github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/trace"
 )
 
@@ -161,7 +162,8 @@ func (i *Installer) registerExitHandlersForAgents(op ops.SiteOperation) {
 func (i *Installer) sendElapsedTime(timeStarted time.Time) {
 	event := dispatcher.Event{
 		Progress: &ops.ProgressEntry{
-			Message: color.GreenString("Installation succeeded in %v", time.Since(timeStarted)),
+			Message: color.GreenString("The operation has finished successfully in %v",
+				time.Since(timeStarted).Truncate(time.Second)),
 		},
 	}
 	i.dispatcher.Send(event)
@@ -260,10 +262,21 @@ func (i *Installer) emitAuditEvents(ctx context.Context, operation ops.SiteOpera
 		i.WithError(err).Warn("Failed to create cluster operator.")
 		return trace.Wrap(err)
 	}
+	var startEvent, finishEvent teleevents.Event
+	switch operation.Type {
+	case ops.OperationInstall:
+		startEvent = events.OperationInstallStart
+		finishEvent = events.OperationInstallComplete
+	case ops.OperationReconfigure:
+		startEvent = events.OperationReconfigureStart
+		finishEvent = events.OperationReconfigureComplete
+	default:
+		return trace.BadParameter("installer can't emit event for %q", operation)
+	}
 	fields := events.FieldsForOperation(operation)
-	events.Emit(i.ctx, operator, events.OperationInstallStart, fields.WithField(
+	events.Emit(i.ctx, operator, startEvent, fields.WithField(
 		events.FieldTime, operation.Created))
-	events.Emit(i.ctx, operator, events.OperationInstallComplete, fields)
+	events.Emit(i.ctx, operator, finishEvent, fields)
 	return nil
 }
 

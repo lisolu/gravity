@@ -75,13 +75,14 @@ func (p *Planner) GetOperationPlan(operator ops.Operator, cluster ops.Site, oper
 		DNSConfig:     cluster.DNSConfig,
 	}
 
-	// TODO(r0mant): Add checks phase?
+	builder.AddPreCleanupPhase(plan)
+	builder.AddChecksPhase(plan)
 	builder.AddConfigurePhase(plan)
 	builder.AddPullPhase(plan)
 	builder.AddMastersPhase(plan)
 	builder.AddWaitPhase(plan)
 	builder.AddHealthPhase(plan)
-	builder.AddCleanupPhase(plan)
+	builder.AddPostCleanupPhase(plan)
 
 	return plan, nil
 }

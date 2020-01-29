@@ -34,9 +34,8 @@ func FSMSpec(config install.FSMConfig) fsm.FSMSpecFunc {
 	return func(p fsm.ExecutorParams, remote fsm.Remote) (fsm.PhaseExecutor, error) {
 		switch {
 		case p.Phase.ID == installphases.ChecksPhase:
-			return installphases.NewChecks(p,
-				config.Operator,
-				config.OperationKey)
+			return phases.NewChecks(p,
+				config.Operator)
 
 		case p.Phase.ID == installphases.ConfigurePhase:
 			return installphases.NewConfigure(p,
@@ -71,7 +70,7 @@ func FSMSpec(config install.FSMConfig) fsm.FSMSpecFunc {
 			return installphases.NewHealth(p,
 				config.Operator)
 
-		case strings.HasPrefix(p.Phase.ID, phases.CleanupPhase):
+		case strings.HasPrefix(p.Phase.ID, phases.PreCleanupPhase) || strings.HasPrefix(p.Phase.ID, phases.PostCleanupPhase):
 			client, _, err := httplib.GetClusterKubeClient(p.Plan.DNSConfig.Addr())
 			if err != nil {
 				return nil, trace.Wrap(err)

@@ -32,12 +32,10 @@ import (
 
 func NewState(p fsm.ExecutorParams, operator ops.Operator) (*stateExecutor, error) {
 	logger := &fsm.Logger{
-		FieldLogger: logrus.WithFields(logrus.Fields{
-			constants.FieldPhase: p.Phase.ID,
-		}),
-		Key:      opKey(p.Plan),
-		Operator: operator,
-		Server:   p.Phase.Data.Server,
+		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),
+		Key:         opKey(p.Plan),
+		Operator:    operator,
+		Server:      p.Phase.Data.Server,
 	}
 	return &stateExecutor{
 		FieldLogger:    logger,

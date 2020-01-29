@@ -196,7 +196,11 @@ func (f *fsmEngine) Complete(fsmErr error) error {
 	if fsm.IsCompleted(plan) {
 		err = ops.CompleteOperation(f.OperationKey, f.Operator)
 	} else {
-		err = ops.FailOperation(f.OperationKey, f.Operator, trace.Unwrap(fsmErr).Error())
+		var message string
+		if fsmErr != nil {
+			message = trace.Unwrap(fsmErr).Error()
+		}
+		err = ops.FailOperation(f.OperationKey, f.Operator, message)
 	}
 	if err != nil {
 		return trace.Wrap(err)

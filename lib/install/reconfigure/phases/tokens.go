@@ -33,12 +33,10 @@ import (
 
 func NewTokens(p fsm.ExecutorParams, operator ops.Operator, client *kubernetes.Clientset) (*tokensExecutor, error) {
 	logger := &fsm.Logger{
-		FieldLogger: logrus.WithFields(logrus.Fields{
-			constants.FieldPhase: p.Phase.ID,
-		}),
-		Key:      opKey(p.Plan),
-		Operator: operator,
-		Server:   p.Phase.Data.Server,
+		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),
+		Key:         opKey(p.Plan),
+		Operator:    operator,
+		Server:      p.Phase.Data.Server,
 	}
 	return &tokensExecutor{
 		FieldLogger:    logger,
@@ -59,7 +57,7 @@ type tokensExecutor struct {
 // Execute removes old service account tokens.
 func (p *tokensExecutor) Execute(ctx context.Context) error {
 	// Remove service account tokens.
-	p.Progress.NextStep("Removing service account tokens")
+	p.Progress.NextStep("Cleaning up service account tokens")
 	secrets, err := p.Client.CoreV1().Secrets(constants.AllNamespaces).List(metav1.ListOptions{})
 	if err != nil {
 		return rigging.ConvertError(err)
@@ -67,19 +65,19 @@ func (p *tokensExecutor) Execute(ctx context.Context) error {
 	for _, secret := range secrets.Items {
 		// Only remove service account tokens.
 		if secret.Type != v1.SecretTypeServiceAccountToken {
-			p.Progress.NextStep("Skipping secret %v/%v", secret.Namespace, secret.Name)
+			p.Infof("Skipping secret %v/%v", secret.Namespace, secret.Name)
 			continue
 		}
 		// Do not remove tokens for system controllers, Kubernetes will refresh those on its own.
 		if secret.Namespace == metav1.NamespaceSystem && strings.Contains(secret.Name, "controller") {
-			p.Progress.NextStep("Skipping secret %v/%v", secret.Namespace, secret.Name)
+			p.Infof("Skipping secret %v/%v", secret.Namespace, secret.Name)
 			continue
 		}
 		err := p.Client.CoreV1().Secrets(secret.Namespace).Delete(secret.Name, &metav1.DeleteOptions{})
 		if err != nil {
-			p.Progress.NextStep("Failed to remove secret %v/%v: %v", secret.Namespace, secret.Name, err)
+			p.Errorf("Failed to remove secret %v/%v: %v", secret.Namespace, secret.Name, err)
 		} else {
-			p.Progress.NextStep("Removed secret %v/%v", secret.Namespace, secret.Name)
+			p.Infof("Removed secret %v/%v", secret.Namespace, secret.Name)
 		}
 	}
 	return nil

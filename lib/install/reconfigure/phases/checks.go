@@ -19,71 +19,67 @@ package phases
 import (
 	"context"
 
+	"github.com/gravitational/gravity/lib/checks"
 	"github.com/gravitational/gravity/lib/constants"
 	"github.com/gravitational/gravity/lib/fsm"
 	"github.com/gravitational/gravity/lib/ops"
-	"github.com/gravitational/gravity/lib/pack"
 
 	"github.com/gravitational/trace"
 	"github.com/sirupsen/logrus"
 )
 
-func NewPackages(p fsm.ExecutorParams, operator ops.Operator, packages pack.PackageService) (*packagesExecutor, error) {
+// NewChecks returns executor that executes preflight checks on the node.
+func NewChecks(p fsm.ExecutorParams, operator ops.Operator) (*checksExecutor, error) {
 	logger := &fsm.Logger{
 		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),
 		Key:         opKey(p.Plan),
 		Operator:    operator,
 		Server:      p.Phase.Data.Server,
 	}
-	return &packagesExecutor{
+	return &checksExecutor{
 		FieldLogger:    logger,
 		ExecutorParams: p,
-		LocalPackages:  packages,
+		Operator:       operator,
 	}, nil
 }
 
-type packagesExecutor struct {
+type checksExecutor struct {
 	// FieldLogger is used for logging.
 	logrus.FieldLogger
-	// ExecutorParams are common executor parameters.
+	// ExecutorParams is common executor params.
 	fsm.ExecutorParams
-	// LocalPackages is the node-local package service.
-	LocalPackages pack.PackageService
+	// Operator is the cluster operator service.
+	Operator ops.Operator
 }
 
-// Execute removes old configuration & secret packages from the node.
-func (p *packagesExecutor) Execute(ctx context.Context) error {
-	p.Progress.NextStep("Cleaning up local packages")
-	err := pack.ForeachPackage(p.LocalPackages, func(e pack.PackageEnvelope) error {
-		if val, ok := e.RuntimeLabels[pack.AdvertiseIPLabel]; ok {
-			if val != p.Phase.Data.Server.AdvertiseIP {
-				err := p.LocalPackages.DeletePackage(e.Locator)
-				if err != nil {
-					return trace.Wrap(err)
-				}
-				p.Infof("Removed local package %v", e.Locator)
-			}
-		}
-		return nil
+// Execute executes preflight checks on the joining node.
+func (p *checksExecutor) Execute(ctx context.Context) error {
+	p.Progress.NextStep("Executing preflight checks")
+	cluster, err := ops.GetWizardCluster(p.Operator)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	err = checks.RunLocalChecks(ctx, checks.LocalChecksRequest{
+		Manifest: cluster.App.Manifest,
+		Role:     p.Phase.Data.Server.Role,
 	})
 	if err != nil {
 		return trace.Wrap(err)
 	}
-
 	return nil
 }
 
 // Rollback is no-op for this phase.
-func (*packagesExecutor) Rollback(ctx context.Context) error {
+func (*checksExecutor) Rollback(ctx context.Context) error {
 	return nil
 }
 
 // PreCheck is no-op for this phase.
-func (*packagesExecutor) PreCheck(ctx context.Context) error {
+func (*checksExecutor) PreCheck(ctx context.Context) error {
 	return nil
 }
 
 // PostCheck is no-op for this phase.
-func (*packagesExecutor) PostCheck(ctx context.Context) error {
+func (*checksExecutor) PostCheck(ctx context.Context) error {
 	return nil
 }

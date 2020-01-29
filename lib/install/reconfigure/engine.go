@@ -79,9 +79,6 @@ func (e *Engine) Execute(ctx context.Context, installer install.Interface, confi
 }
 
 func (e *Engine) execute(ctx context.Context, installer install.Interface, config install.Config) (err error) {
-	if err := e.validate(ctx, config); err != nil {
-		return trace.Wrap(err)
-	}
 	operation, err := e.upsertClusterAndOperation(ctx, installer, config)
 	if err != nil {
 		return trace.Wrap(err, "failed to create cluster/operation")
@@ -90,14 +87,9 @@ func (e *Engine) execute(ctx context.Context, installer install.Interface, confi
 		return trace.Wrap(err)
 	}
 	if err := installer.CompleteOperation(*operation); err != nil {
-		e.WithError(err).Warn("Failed to finalize install.")
+		e.WithError(err).Warn("Failed to finalize the operation.")
 	}
 	return nil
-}
-
-func (e *Engine) validate(ctx context.Context, config install.Config) (err error) {
-	return nil
-	//	return trace.Wrap(config.RunLocalChecks(ctx))
 }
 
 func (e *Engine) upsertClusterAndOperation(ctx context.Context, installer install.Interface, config install.Config) (*ops.SiteOperation, error) {

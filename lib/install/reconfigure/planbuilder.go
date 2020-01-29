@@ -28,47 +28,72 @@ import (
 
 // PlanBuilder builds plan for the reconfigure operation.
 type PlanBuilder struct {
+	// PlanBuilder is the embedded installer plan builder.
 	*install.PlanBuilder
 }
 
-// AddCleanupPhase adds the post IP change cleanup phases to the plan.
-func (b *PlanBuilder) AddCleanupPhase(plan *storage.OperationPlan) {
+// AddChecksPhase adds the preflight checks phase to the plan.
+func (b *PlanBuilder) AddChecksPhase(plan *storage.OperationPlan) {
 	plan.Phases = append(plan.Phases, storage.OperationPhase{
-		ID:          phases.CleanupPhase,
-		Description: "Repair the cluster state after advertise IP change",
+		ID:          installphases.ChecksPhase,
+		Description: "Execute preflight checks",
+		Data: &storage.OperationPhaseData{
+			Server: &b.Master,
+		},
+	})
+}
+
+// AddPreCleanupPhase adds the phase that does pre-reconfiguration cleanups
+// on the node to the plan.
+func (b *PlanBuilder) AddPreCleanupPhase(plan *storage.OperationPlan) {
+	plan.Phases = append(plan.Phases, storage.OperationPhase{
+		ID:          phases.PreCleanupPhase,
+		Description: "Perform pre advertise IP change cleanups on the node",
 		Requires:    fsm.RequireIfPresent(plan, installphases.HealthPhase),
 		Phases: []storage.OperationPhase{
 			{
-				ID:          fmt.Sprintf("%v/%v", phases.CleanupPhase, phases.PackagesPhase),
-				Description: "Remove old configuration and secrets",
+				ID:          fmt.Sprintf("%v%v", phases.PreCleanupPhase, phases.NetworkPhase),
+				Description: "Clean up old network interfaces",
+				Data: &storage.OperationPhaseData{
+					Server: &b.Master,
+				},
+			},
+		},
+	})
+}
+
+// AddPostCleanupPhase adds the phase that does post-reconfiguration cleanups
+// on the node to the plan.
+func (b *PlanBuilder) AddPostCleanupPhase(plan *storage.OperationPlan) {
+	plan.Phases = append(plan.Phases, storage.OperationPhase{
+		ID:          phases.PostCleanupPhase,
+		Description: "Perform post advertise IP change cleanups on the node",
+		Requires:    fsm.RequireIfPresent(plan, installphases.HealthPhase),
+		Phases: []storage.OperationPhase{
+			{
+				ID:          fmt.Sprintf("%v%v", phases.PostCleanupPhase, phases.PackagesPhase),
+				Description: "Clean up old configuration and secrets",
 				Data: &storage.OperationPhaseData{
 					Server: &b.Master,
 				},
 			},
 			{
-				ID:          fmt.Sprintf("%v/%v", phases.CleanupPhase, phases.StatePhase),
+				ID:          fmt.Sprintf("%v%v", phases.PostCleanupPhase, phases.StatePhase),
 				Description: "Update cluster state",
 				Data: &storage.OperationPhaseData{
 					Server: &b.Master,
 				},
 			},
 			{
-				ID:          fmt.Sprintf("%v/%v", phases.CleanupPhase, phases.NetworkPhase),
-				Description: "Remove old network interfaces",
+				ID:          fmt.Sprintf("%v%v", phases.PostCleanupPhase, phases.TokensPhase),
+				Description: "Clean up old service account tokens",
 				Data: &storage.OperationPhaseData{
 					Server: &b.Master,
 				},
 			},
 			{
-				ID:          fmt.Sprintf("%v/%v", phases.CleanupPhase, phases.TokensPhase),
-				Description: "Remove old service account tokens",
-				Data: &storage.OperationPhaseData{
-					Server: &b.Master,
-				},
-			},
-			{
-				ID:          fmt.Sprintf("%v/%v", phases.CleanupPhase, phases.NodePhase),
-				Description: "Remove old Kubernetes node",
+				ID:          fmt.Sprintf("%v%v", phases.PostCleanupPhase, phases.NodePhase),
+				Description: "Clean up old Kubernetes node",
 				Data: &storage.OperationPhaseData{
 					Server: &b.Master,
 				},

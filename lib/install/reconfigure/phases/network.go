@@ -21,9 +21,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/gravitational/gravity/lib/constants"
+	"github.com/gravitational/gravity/lib/defaults"
 	"github.com/gravitational/gravity/lib/fsm"
 	"github.com/gravitational/gravity/lib/ops"
 	"github.com/gravitational/gravity/lib/utils"
@@ -34,12 +34,10 @@ import (
 
 func NewNetwork(p fsm.ExecutorParams, operator ops.Operator) (*networkExecutor, error) {
 	logger := &fsm.Logger{
-		FieldLogger: logrus.WithFields(logrus.Fields{
-			constants.FieldPhase: p.Phase.ID,
-		}),
-		Key:      opKey(p.Plan),
-		Operator: operator,
-		Server:   p.Phase.Data.Server,
+		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),
+		Key:         opKey(p.Plan),
+		Operator:    operator,
+		Server:      p.Phase.Data.Server,
 	}
 	return &networkExecutor{
 		FieldLogger:    logger,
@@ -62,12 +60,12 @@ func (p *networkExecutor) Execute(ctx context.Context) error {
 		return trace.Wrap(err)
 	}
 	for _, iface := range ifaces {
-		if strings.HasPrefix(iface.Name, "cni") {
+		if utils.HasOneOfPrefixes(iface.Name, defaults.NetworkInterfaces...) {
 			err := utils.Exec(exec.Command("ip", "link", "del", iface.Name), os.Stdout)
 			if err != nil {
 				return trace.Wrap(err)
 			}
-			p.Progress.NextStep("Removed inteface %v", iface.Name)
+			p.Infof("Removed inteface %v", iface.Name)
 		}
 	}
 	return nil

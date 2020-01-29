@@ -33,12 +33,10 @@ import (
 
 func NewNode(p fsm.ExecutorParams, operator ops.Operator, client *kubernetes.Clientset) (*nodeExecutor, error) {
 	logger := &fsm.Logger{
-		FieldLogger: logrus.WithFields(logrus.Fields{
-			constants.FieldPhase: p.Phase.ID,
-		}),
-		Key:      opKey(p.Plan),
-		Operator: operator,
-		Server:   p.Phase.Data.Server,
+		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),
+		Key:         opKey(p.Plan),
+		Operator:    operator,
+		Server:      p.Phase.Data.Server,
 	}
 	return &nodeExecutor{
 		FieldLogger:    logger,
@@ -58,7 +56,7 @@ type nodeExecutor struct {
 
 // Execute removes the old Kubernetes node.
 func (p *nodeExecutor) Execute(ctx context.Context) error {
-	p.Progress.NextStep("Removing Kubernetes node")
+	p.Progress.NextStep("Cleaning up the Kubernetes node")
 	nodes, err := utils.GetNodes(p.Client.CoreV1().Nodes())
 	if err != nil {
 		return trace.Wrap(err)
@@ -69,7 +67,7 @@ func (p *nodeExecutor) Execute(ctx context.Context) error {
 			if err != nil {
 				return rigging.ConvertError(err)
 			}
-			p.Progress.NextStep("Removed node %v", node.Name)
+			p.Infof("Removed Kubernetes node %v", node.Name)
 		}
 	}
 	return nil
