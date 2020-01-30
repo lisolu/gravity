@@ -31,6 +31,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// NewTokens returns executor that removes old service account tokens.
+//
+// During the reconfigure operation, the secrets get regenerated thus
+// invalidating old service account tokens. Kubernetes will recreate
+// them automatically when they are deleted during this phase.
 func NewTokens(p fsm.ExecutorParams, operator ops.Operator, client *kubernetes.Clientset) (*tokensExecutor, error) {
 	logger := &fsm.Logger{
 		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),

@@ -98,6 +98,13 @@ func (b *PlanBuilder) AddPostCleanupPhase(plan *storage.OperationPlan) {
 					Server: &b.Master,
 				},
 			},
+			{
+				ID:          fmt.Sprintf("%v%v", phases.PostCleanupPhase, phases.GravityPhase),
+				Description: "Wait for Gravity API to become available",
+				Data: &storage.OperationPhaseData{
+					Server: &b.Master,
+				},
+			},
 		},
 	})
 }

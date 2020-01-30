@@ -160,8 +160,6 @@ type Config struct {
 	LocalAgent bool
 	// Values are helm values in marshaled yaml format
 	Values []byte
-	//
-	Reconfigure bool
 }
 
 // checkAndSetDefaults checks the parameters and autodetects some defaults

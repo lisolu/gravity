@@ -85,7 +85,7 @@ const (
 	SiteStateUpdatingEnviron = "updating_cluster_environ"
 	// SiteStateUpdatingConfig is the state of the cluster when it's updating configuration
 	SiteStateUpdatingConfig = "updating_cluster_config"
-	//
+	// SiteStateReconfiguring is the state of the cluster when its advertise IP is being reconfigured
 	SiteStateReconfiguring = "reconfiguring"
 	// SiteStateDegraded means that the application installed on a deployed site is failing its health check
 	SiteStateDegraded = "degraded"
@@ -99,8 +99,11 @@ const (
 	OperationStateInstallProvisioning = "install_provisioning"
 	OperationStateInstallDeploying    = "install_deploying"
 
-	//
-	OperationReconfigure           = "operation_reconfigure"
+	// OperationReconfigure is the name of the operation that reconfigures
+	// the cluster advertise IP.
+	OperationReconfigure = "operation_reconfigure"
+	// OperationReconfigureInProgress is the operation state indicating
+	// cluster advertise IP is being reconfigured.
 	OperationReconfigureInProgress = "reconfigure_in_progress"
 
 	// OperationStateReady indicates that the operation is ready to

@@ -151,7 +151,7 @@ func stopPackageServices(svm systemservice.ServiceManager, printer utils.Printer
 	}
 	var errors []error
 	for _, service := range services {
-		printer.PrintStep("Stopping system service %v", service)
+		printer.PrintStep("Stopping system service %s", service.Package)
 		log := logger.WithField("package", service.Package)
 		err := svm.StopPackageService(service.Package)
 		if err != nil {

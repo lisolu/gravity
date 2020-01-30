@@ -18,12 +18,15 @@ package reconfigure
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/gravitational/gravity/lib/defaults"
 	"github.com/gravitational/gravity/lib/install"
 	"github.com/gravitational/gravity/lib/install/dispatcher"
+	"github.com/gravitational/gravity/lib/localenv"
 	"github.com/gravitational/gravity/lib/ops"
+	"github.com/gravitational/gravity/lib/ops/events"
 	"github.com/gravitational/gravity/lib/schema"
 	"github.com/gravitational/gravity/lib/storage"
 	"github.com/gravitational/gravity/lib/systeminfo"
@@ -54,8 +57,8 @@ type Config struct {
 	logrus.FieldLogger
 	// Operator specifies the service operator
 	ops.Operator
-	// InstallOperation is the original install operation of this cluster.
-	InstallOperation *storage.SiteOperation
+	// State represents the existing cluster state
+	State *State
 }
 
 func (c *Config) checkAndSetDefaults() error {
@@ -64,6 +67,9 @@ func (c *Config) checkAndSetDefaults() error {
 	}
 	if c.Operator == nil {
 		return trace.BadParameter("missing Operator")
+	}
+	if c.State == nil {
+		return trace.BadParameter("missing State")
 	}
 	return nil
 }
@@ -86,9 +92,35 @@ func (e *Engine) execute(ctx context.Context, installer install.Interface, confi
 	if err := installer.ExecuteOperation(operation.Key()); err != nil {
 		return trace.Wrap(err)
 	}
-	if err := installer.CompleteOperation(*operation); err != nil {
+	if err := e.completeOperation(ctx, *operation, config); err != nil {
 		e.WithError(err).Warn("Failed to finalize the operation.")
 	}
+	return nil
+}
+
+// completeOperation finalizes the completed operation by uploading the
+// operation log to the now-active cluster and emitting audit events.
+//
+// TODO(r0mant): This should probably become a part of a some kind of
+// generic "completer" or "finalizer" interface, otherwise it is not
+// executed when completing the operation manually.
+func (e *Engine) completeOperation(ctx context.Context, operation ops.SiteOperation, config install.Config) error {
+	logFile, err := os.Open(config.UserLogFile)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	defer logFile.Close()
+	operator, err := localenv.ClusterOperator()
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	err = operator.StreamOperationLogs(operation.Key(), logFile)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	fields := events.FieldsForOperation(operation)
+	events.Emit(ctx, operator, events.OperationReconfigureStart, fields.WithField(events.FieldTime, operation.Created))
+	events.Emit(ctx, operator, events.OperationReconfigureComplete, fields)
 	return nil
 }
 
@@ -127,21 +159,24 @@ func (e *Engine) createOperation(ctx context.Context, config install.Config) (*o
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+	existingServer, err := e.State.Server()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	// Create a new server object using the system information collected for
+	// this node and filling in other things using the original server.
 	server := storage.Server{
 		AdvertiseIP: config.AdvertiseAddr,
 		Hostname:    systemInfo.GetHostname(),
-		// Nodename: ,
-		Role: config.Role,
-		// InstanceType: ,
-		// InstanceID: ,
+		Role:        existingServer.Role,
 		ClusterRole: string(schema.ServiceRoleMaster),
 		Provisioner: schema.ProvisionerOnPrem,
 		OSInfo:      systemInfo.GetOS(),
-		// Mounts: ,
-		// SystemState: ,
-		// Docker: ,
-		User:    systemInfo.GetUser(),
-		Created: time.Now().UTC(),
+		Mounts:      existingServer.Mounts,
+		SystemState: existingServer.SystemState,
+		Docker:      existingServer.Docker,
+		User:        systemInfo.GetUser(),
+		Created:     time.Now().UTC(),
 	}
 	req := ops.CreateClusterReconfigureOperationRequest{
 		SiteKey: ops.SiteKey{
@@ -149,9 +184,8 @@ func (e *Engine) createOperation(ctx context.Context, config install.Config) (*o
 			SiteDomain: config.SiteDomain,
 		},
 		AdvertiseAddr: config.AdvertiseAddr,
-		Token:         config.Token.Token,
 		Servers:       []storage.Server{server},
-		InstallExpand: e.InstallOperation.InstallExpand,
+		InstallExpand: e.State.InstallOperation.InstallExpand,
 	}
 	key, err := e.Operator.CreateClusterReconfigureOperation(ctx, req)
 	if err != nil {

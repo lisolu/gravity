@@ -46,6 +46,8 @@ func NewCleanup(p fsm.ExecutorParams, operator ops.Operator, packages pack.Packa
 			return NewTokens(p, operator, client)
 		case NodePhase:
 			return NewNode(p, operator, client)
+		case GravityPhase:
+			return NewGravity(p, operator)
 		}
 	}
 	return nil, trace.BadParameter("unknown phase %q", p.Phase.ID)
@@ -74,4 +76,6 @@ const (
 	TokensPhase = "/tokens"
 	// NodePhase removes old Kubernetes node object.
 	NodePhase = "/node"
+	// GravityPhase waits for gravity-site API to become available.
+	GravityPhase = "/gravity"
 )

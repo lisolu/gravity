@@ -1,22 +1,28 @@
-// TODO: License
+/*
+Copyright 2020 Gravitational, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package cli
 
 import (
 	"context"
-	"io"
-	"io/ioutil"
-	"os"
 
-	"github.com/gravitational/gravity/lib/constants"
-	"github.com/gravitational/gravity/lib/defaults"
 	"github.com/gravitational/gravity/lib/install"
 	installerclient "github.com/gravitational/gravity/lib/install/client"
 	"github.com/gravitational/gravity/lib/install/reconfigure"
-	"github.com/gravitational/gravity/lib/loc"
 	"github.com/gravitational/gravity/lib/localenv"
-	"github.com/gravitational/gravity/lib/ops"
-	"github.com/gravitational/gravity/lib/storage"
-	"github.com/gravitational/gravity/lib/storage/keyval"
 	"github.com/gravitational/gravity/lib/system/signals"
 	"github.com/gravitational/gravity/lib/utils"
 	"github.com/gravitational/gravity/lib/utils/cli"
@@ -24,32 +30,29 @@ import (
 	"github.com/gravitational/trace"
 )
 
+// reconfigureCluster starts the cluster reconfiguration operation.
+//
+// Currently, the reconfiguration operation only allows to change advertise
+// address for single-node clusters.
 func reconfigureCluster(env *localenv.LocalEnvironment, config InstallConfig) error {
 	env.PrintStep("Starting reconfigurator")
-	// Determine existing cluster name.
-	// TODO(r0mant): Do something smarter.
-	repos, err := env.Packages.GetRepositories()
+	// Determine the existing cluster name.
+	localState, err := reconfigure.GetLocalState(env.Packages)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	if len(repos) != 2 {
-		return trace.BadParameter("expected 2 repositories: %v", repos)
+	log.Infof("Determined local cluster state: %#v.", localState)
+	if err := reconfigure.ValidateLocalState(localState); err != nil {
+		return trace.Wrap(err)
 	}
-	var clusterName string
-	for _, repo := range repos {
-		if repo != defaults.SystemAccountOrg {
-			clusterName = repo
-		}
-	}
-	env.PrintStep("Cluster name: %v", clusterName)
-	config.SiteDomain = clusterName
+	config.SiteDomain = localState.Cluster.Domain
 	if err := config.CheckAndSetDefaults(); err != nil {
 		return trace.Wrap(err)
 	}
 	if config.FromService {
-		err := startReconfiguratorFromService(env, config)
+		err := startReconfiguratorFromService(env, config, localState)
 		if utils.IsContextCancelledError(err) {
-			return trace.Wrap(err, "installer interrupted")
+			return trace.Wrap(err, "reconfigurator interrupted")
 		}
 		return trace.Wrap(err)
 	}
@@ -69,14 +72,13 @@ func reconfigureCluster(env *localenv.LocalEnvironment, config InstallConfig) er
 		},
 	})
 	if utils.IsContextCancelledError(err) {
-		// We only end up here if the initialization has not been successful - clean up the state
 		InstallerCleanup()
-		return trace.Wrap(err, "installer interrupted")
+		return trace.Wrap(err, "reconfigurator interrupted")
 	}
 	return trace.Wrap(err)
 }
 
-func startReconfiguratorFromService(env *localenv.LocalEnvironment, config InstallConfig) error {
+func startReconfiguratorFromService(env *localenv.LocalEnvironment, config InstallConfig, state *reconfigure.State) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	interrupt := signals.NewInterruptHandler(ctx, cancel, InterruptSignals)
 	defer interrupt.Close()
@@ -94,7 +96,7 @@ func startReconfiguratorFromService(env *localenv.LocalEnvironment, config Insta
 	if err != nil {
 		return trace.Wrap(utils.NewPreconditionFailedError(err))
 	}
-	installer, err := newReconfigurator(ctx, installerConfig)
+	installer, err := newReconfigurator(ctx, installerConfig, state)
 	if err != nil {
 		return trace.Wrap(utils.NewPreconditionFailedError(err))
 	}
@@ -102,24 +104,18 @@ func startReconfiguratorFromService(env *localenv.LocalEnvironment, config Insta
 	return trace.Wrap(installer.Run(listener))
 }
 
-func newReconfigurator(ctx context.Context, config *install.Config) (*install.Installer, error) {
-	cluster, installOperation, err := getInstallOperation(config)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
+func newReconfigurator(ctx context.Context, config *install.Config, state *reconfigure.State) (*install.Installer, error) {
 	engine, err := reconfigure.NewEngine(reconfigure.Config{
-		Operator:         config.Operator,
-		InstallOperation: installOperation,
-		// AdvertiseAddr: config.AdvertiseAddr,
-		// Token:         config.Token.Token,
+		Operator: config.Operator,
+		State:    state,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	config.LocalAgent = false
+	config.LocalAgent = false // To make sure agent does not get launched on this node.
 	installer, err := install.New(ctx, install.RuntimeConfig{
 		Config:         *config,
-		Planner:        reconfigure.NewPlanner(config, *cluster),
+		Planner:        reconfigure.NewPlanner(config, state.Cluster),
 		FSMFactory:     reconfigure.NewFSMFactory(*config),
 		ClusterFactory: install.NewClusterFactory(*config),
 		Engine:         engine,
@@ -128,46 +124,4 @@ func newReconfigurator(ctx context.Context, config *install.Config) (*install.In
 		return nil, trace.Wrap(err)
 	}
 	return installer, nil
-}
-
-func getInstallOperation(config *install.Config) (*storage.Site, *storage.SiteOperation, error) {
-	_, reader, err := config.LocalPackages.ReadPackage(loc.Locator{
-		Repository: config.SiteDomain,
-		Name:       constants.SiteExportPackage,
-		Version:    "0.0.1",
-	})
-	if err != nil {
-		return nil, nil, trace.Wrap(err)
-	}
-	defer reader.Close()
-	tempFile, err := ioutil.TempFile("", "")
-	if err != nil {
-		return nil, nil, trace.Wrap(err)
-	}
-	defer os.Remove(tempFile.Name())
-	_, err = io.Copy(tempFile, reader)
-	if err != nil {
-		return nil, nil, trace.Wrap(err)
-	}
-	backend, err := keyval.NewBolt(keyval.BoltConfig{
-		Path: tempFile.Name(),
-	})
-	if err != nil {
-		return nil, nil, trace.Wrap(err)
-	}
-	defer backend.Close()
-	cluster, err := backend.GetSite(config.SiteDomain)
-	if err != nil {
-		return nil, nil, trace.Wrap(err)
-	}
-	operations, err := storage.GetOperations(backend)
-	if err != nil {
-		return nil, nil, trace.Wrap(err)
-	}
-	for _, operation := range operations {
-		if operation.Type == ops.OperationInstall {
-			return cluster, &operation, nil
-		}
-	}
-	return nil, nil, trace.NotFound("install operation not found")
 }

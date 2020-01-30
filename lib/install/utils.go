@@ -415,7 +415,6 @@ func tryInstallBinary(targetPath string, uid, gid int, logger log.FieldLogger) e
 // initOperationPlan initializes a new operation plan for the specified install operation
 // in the given operator
 func (i *Installer) initOperationPlan(key ops.SiteOperationKey) error {
-	// func (i *Installer) initOperationPlan(operator ops.Operator, planner engine.Planner) error {
 	clusters, err := i.config.Operator.GetSites(defaults.SystemAccountID)
 	if err != nil {
 		return trace.Wrap(err)
@@ -424,7 +423,6 @@ func (i *Installer) initOperationPlan(key ops.SiteOperationKey) error {
 		return trace.BadParameter("expected 1 cluster, got: %v", clusters)
 	}
 	operation, err := i.config.Operator.GetSiteOperation(key)
-	//operation, _, err := ops.GetInstallOperation(clusters[0].Key(), operator)
 	if err != nil {
 		return trace.Wrap(err)
 	}

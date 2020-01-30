@@ -18,6 +18,7 @@ package phases
 
 import (
 	"context"
+	"time"
 
 	"github.com/gravitational/gravity/lib/constants"
 	"github.com/gravitational/gravity/lib/defaults"
@@ -30,6 +31,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// NewState returns executor that updates the cluster state with new IP.
 func NewState(p fsm.ExecutorParams, operator ops.Operator) (*stateExecutor, error) {
 	logger := &fsm.Logger{
 		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),
@@ -37,9 +39,14 @@ func NewState(p fsm.ExecutorParams, operator ops.Operator) (*stateExecutor, erro
 		Operator:    operator,
 		Server:      p.Phase.Data.Server,
 	}
+	operation, err := operator.GetSiteOperation(opKey(p.Plan))
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
 	return &stateExecutor{
 		FieldLogger:    logger,
 		ExecutorParams: p,
+		Operation:      *operation,
 	}, nil
 }
 
@@ -48,6 +55,8 @@ type stateExecutor struct {
 	logrus.FieldLogger
 	// ExecutorParams are common executor parameters.
 	fsm.ExecutorParams
+	// Operation is the current reconfigure operation.
+	Operation ops.SiteOperation
 }
 
 // Execute updates the server information in the cluster state.
@@ -57,12 +66,52 @@ func (p *stateExecutor) Execute(ctx context.Context) error {
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	cluster, err := clusterEnv.Backend.GetLocalSite(defaults.SystemAccountID)
+	err = p.updateNode(clusterEnv.Backend, *p.Phase.Data.Server)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	cluster.ClusterState.Servers = storage.Servers{*p.Phase.Data.Server}
-	_, err = clusterEnv.Backend.UpdateSite(*cluster)
+	err = p.createOperation(clusterEnv.Backend)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	return nil
+}
+
+func (p *stateExecutor) updateNode(backend storage.Backend, node storage.Server) error {
+	cluster, err := backend.GetLocalSite(defaults.SystemAccountID)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	cluster.ClusterState.Servers = storage.Servers{node}
+	_, err = backend.UpdateSite(*cluster)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	p.Debug("Updated node in the cluster state.")
+	return nil
+}
+
+func (p *stateExecutor) createOperation(backend storage.Backend) error {
+	operation := storage.SiteOperation(p.Operation)
+	operation.State = ops.OperationStateCompleted
+	_, err := backend.CreateSiteOperation(operation)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	_, err = backend.CreateProgressEntry(storage.ProgressEntry{
+		SiteDomain:  operation.SiteDomain,
+		OperationID: operation.ID,
+		Created:     time.Now().UTC(),
+		Completion:  constants.Completed,
+		State:       ops.ProgressStateCompleted,
+		Message:     "Operation has completed",
+	})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	plan := p.Plan
+	fsm.MarkCompleted(&plan)
+	_, err = backend.CreateOperationPlan(plan)
 	if err != nil {
 		return trace.Wrap(err)
 	}

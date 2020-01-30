@@ -160,7 +160,9 @@ func fieldsForOperation(operation ops.SiteOperation) (Fields, error) {
 			fields[FieldVersion] = locator.Version
 		}
 	case ops.OperationReconfigure:
-		// TODO(r0mant): Add new advertise IP from operation data to the event.
+		if operation.Reconfigure != nil {
+			fields[FieldNodeIP] = operation.Reconfigure.AdvertiseAddr
+		}
 	}
 	return fields, nil
 }

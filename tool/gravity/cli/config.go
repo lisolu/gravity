@@ -164,10 +164,12 @@ type InstallConfig struct {
 	writeStateDir string
 	// Values are helm values in marshaled yaml format
 	Values []byte
-	//
-	Reconfigure bool
 }
 
+// NewReconfigureConfig creates config for the reconfigure operation.
+//
+// Reconfiguration is very similar to initial installation so the install
+// config is reused.
 func NewReconfigureConfig(env *localenv.LocalEnvironment, g *Application) (*InstallConfig, error) {
 	return &InstallConfig{
 		Insecure:           *g.Insecure,
@@ -175,7 +177,6 @@ func NewReconfigureConfig(env *localenv.LocalEnvironment, g *Application) (*Inst
 		UserLogFile:        *g.UserLogFile,
 		SystemLogFile:      *g.SystemLogFile,
 		AdvertiseAddr:      *g.ReconfigureCmd.AdvertiseAddr,
-		Role:               *g.ReconfigureCmd.Role,
 		FromService:        *g.ReconfigureCmd.FromService,
 		LocalPackages:      env.Packages,
 		LocalApps:          env.Apps,
@@ -235,7 +236,6 @@ func NewInstallConfig(env *localenv.LocalEnvironment, g *Application) (*InstallC
 		Remote:             *g.InstallCmd.Remote,
 		FromService:        *g.InstallCmd.FromService,
 		Values:             values,
-		Reconfigure:        *g.InstallCmd.Reconfigure,
 		Printer:            env,
 	}, nil
 }
@@ -434,7 +434,6 @@ func (i *InstallConfig) NewInstallerConfig(
 		Operator:           wizard.Operator,
 		LocalAgent:         !i.Remote,
 		Values:             i.Values,
-		Reconfigure:        i.Reconfigure,
 	}, nil
 
 }

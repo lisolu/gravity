@@ -98,7 +98,6 @@ func RegisterCommands(app *kingpin.Application) *Application {
 	g.InstallCmd.FromService = g.InstallCmd.Flag("from-service", "Run in service mode.").Hidden().Bool()
 	g.InstallCmd.Set = g.InstallCmd.Flag("set", "Set Helm chart values on the command line. Can be specified multiple times and/or as comma-separated values: key1=val1,key2=val2.").Strings()
 	g.InstallCmd.Values = g.InstallCmd.Flag("values", "Set Helm chart values from the provided YAML file. Can be specified multiple times.").Strings()
-	g.InstallCmd.Reconfigure = g.InstallCmd.Flag("reconfigure", "").Bool()
 
 	g.JoinCmd.CmdClause = g.Command("join", "Join the existing cluster or an on-going install operation.")
 	g.JoinCmd.PeerAddr = g.JoinCmd.Arg("peer-addrs", "One or several IP addresses of cluster nodes to join, as comma-separated values.").String()
@@ -140,11 +139,10 @@ func RegisterCommands(app *kingpin.Application) *Application {
 	g.ResumeCmd.Force = g.ResumeCmd.Flag("force", "Force execution of specified phase.").Bool()
 	g.ResumeCmd.PhaseTimeout = g.ResumeCmd.Flag("timeout", "Phase execution timeout.").Default(defaults.PhaseTimeout).Hidden().Duration()
 
-	g.ReconfigureCmd.CmdClause = g.Command("reconfigure", "")
+	g.ReconfigureCmd.CmdClause = g.Command("reconfigure", "Reconfigure the node's advertise address. Supported for single-node clusters only.")
 	g.ReconfigureCmd.Path = g.ReconfigureCmd.Arg("path", "Path to the directory with the unpacked cluster image. Defaults to the current directory.").String()
-	g.ReconfigureCmd.AdvertiseAddr = g.ReconfigureCmd.Flag("advertise-addr", "").String()
-	g.ReconfigureCmd.Role = g.ReconfigureCmd.Flag("role", "").String()
-	g.ReconfigureCmd.FromService = g.ReconfigureCmd.Flag("from-service", "").Hidden().Bool()
+	g.ReconfigureCmd.AdvertiseAddr = g.ReconfigureCmd.Flag("advertise-addr", "The new node's advertise address.").String()
+	g.ReconfigureCmd.FromService = g.ReconfigureCmd.Flag("from-service", "Run in service mode.").Hidden().Bool()
 
 	g.PlanCmd.CmdClause = g.Command("plan", "Manage operation plan.")
 	g.PlanCmd.OperationID = g.PlanCmd.Flag("operation-id", "ID of the active operation. It not specified, the last operation will be used.").Hidden().String()

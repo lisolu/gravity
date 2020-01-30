@@ -66,7 +66,7 @@ type Application struct {
 	LeaveCmd LeaveCmd
 	// RemoveCmd removes the specified node from the cluster
 	RemoveCmd RemoveCmd
-	//
+	// ReconfigureCmd launches cluster reconfiguration operation
 	ReconfigureCmd ReconfigureCmd
 	// PlanCmd manages an operation plan
 	PlanCmd PlanCmd
@@ -406,8 +406,6 @@ type InstallCmd struct {
 	Set *[]string
 	// Values is a list of YAML files with Helm chart values.
 	Values *[]string
-	//
-	Reconfigure *bool
 }
 
 // JoinCmd joins to the installer or existing cluster
@@ -488,16 +486,14 @@ type RemoveCmd struct {
 	Confirm *bool
 }
 
-//
+// ReconfigureCmd launches cluster reconfiguration operation.
 type ReconfigureCmd struct {
 	*kingpin.CmdClause
-	//
+	// Path is the path to the unpacked cluster image tarball.
 	Path *string
-	//
+	// AdvertiseAddr is the new node advertise address.
 	AdvertiseAddr *string
-	//
-	Role *string
-	//
+	// FromService indicates that the commadn is running as a systemd service.
 	FromService *bool
 }
 

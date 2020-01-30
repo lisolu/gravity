@@ -751,7 +751,8 @@ func NewInstallerConnectStrategy(env *localenv.LocalEnvironment, config InstallC
 	}, nil
 }
 
-//
+// newReconfiguratorConnectStrategy returns a new service connect strategy
+// for the agent executing the cluster reconfiguration operation.
 func newReconfiguratorConnectStrategy(env *localenv.LocalEnvironment, config InstallConfig, commandArgs cli.CommandArgs) (strategy installerclient.ConnectStrategy, err error) {
 	args, err := commandArgs.Update(os.Args[1:])
 	if err != nil {

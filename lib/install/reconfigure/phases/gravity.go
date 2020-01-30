@@ -18,73 +18,65 @@ package phases
 
 import (
 	"context"
+	"time"
 
 	"github.com/gravitational/gravity/lib/constants"
 	"github.com/gravitational/gravity/lib/fsm"
+	"github.com/gravitational/gravity/lib/localenv"
 	"github.com/gravitational/gravity/lib/ops"
-	"github.com/gravitational/gravity/lib/pack"
+	"github.com/gravitational/gravity/lib/utils"
 
 	"github.com/gravitational/trace"
 	"github.com/sirupsen/logrus"
 )
 
-// NewPackages returns executor that removes old packages on the node.
-func NewPackages(p fsm.ExecutorParams, operator ops.Operator, packages pack.PackageService) (*packagesExecutor, error) {
+// NewGravity returns executor that waits for gravity-site to become available.
+func NewGravity(p fsm.ExecutorParams, operator ops.Operator) (*gravityExecutor, error) {
 	logger := &fsm.Logger{
 		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),
 		Key:         opKey(p.Plan),
 		Operator:    operator,
 		Server:      p.Phase.Data.Server,
 	}
-	return &packagesExecutor{
+	return &gravityExecutor{
 		FieldLogger:    logger,
 		ExecutorParams: p,
-		LocalPackages:  packages,
 	}, nil
 }
 
-type packagesExecutor struct {
+type gravityExecutor struct {
 	// FieldLogger is used for logging.
 	logrus.FieldLogger
 	// ExecutorParams are common executor parameters.
 	fsm.ExecutorParams
-	// LocalPackages is the node-local package service.
-	LocalPackages pack.PackageService
 }
 
-// Execute removes old configuration & secret packages from the node.
-func (p *packagesExecutor) Execute(ctx context.Context) error {
-	p.Progress.NextStep("Cleaning up local packages")
-	err := pack.ForeachPackage(p.LocalPackages, func(e pack.PackageEnvelope) error {
-		if val, ok := e.RuntimeLabels[pack.AdvertiseIPLabel]; ok {
-			if val != p.Phase.Data.Server.AdvertiseIP {
-				err := p.LocalPackages.DeletePackage(e.Locator)
-				if err != nil {
-					return trace.Wrap(err)
-				}
-				p.Infof("Removed local package %v", e.Locator)
-			}
-		}
-		return nil
-	})
+// Execute waits for gravity-site to become available.
+func (p *gravityExecutor) Execute(ctx context.Context) error {
+	p.Progress.NextStep("Waiting for Gravity API to become available")
+	operator, err := localenv.ClusterOperator()
 	if err != nil {
 		return trace.Wrap(err)
 	}
-
-	return nil
+	return utils.RetryFor(ctx, 5*time.Minute, func() error {
+		if _, err := operator.GetLocalSite(); err != nil {
+			return trace.Wrap(err)
+		}
+		return nil
+	})
 }
 
 // Rollback is no-op for this phase.
-func (*packagesExecutor) Rollback(ctx context.Context) error {
+func (*gravityExecutor) Rollback(ctx context.Context) error {
 	return nil
 }
 
 // PreCheck is no-op for this phase.
-func (*packagesExecutor) PreCheck(ctx context.Context) error {
+func (*gravityExecutor) PreCheck(ctx context.Context) error {
 	return nil
 }
 
 // PostCheck is no-op for this phase.
-func (*packagesExecutor) PostCheck(ctx context.Context) error {
+func (*gravityExecutor) PostCheck(ctx context.Context) error {
 	return nil
 }

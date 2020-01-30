@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// NewNode returns executor that removes old Kubernetes node object.
 func NewNode(p fsm.ExecutorParams, operator ops.Operator, client *kubernetes.Clientset) (*nodeExecutor, error) {
 	logger := &fsm.Logger{
 		FieldLogger: logrus.WithField(constants.FieldPhase, p.Phase.ID),
